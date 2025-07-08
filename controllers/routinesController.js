@@ -28,7 +28,7 @@ export const getAllRoutines = async (req, res) => {
         }]
       },
     });
-
+    
     // El mapping final:
     const routines = userRoutines.map((ur) => ({
       id: ur.Routine.id,
@@ -76,7 +76,7 @@ export const getRoutineById = async (req, res) => {
 
     if (!routine) {
       return res.status(404).json({ error: "Rutina no encontrada" });
-    }
+    }    
 
     const dayStatuses = await UserRoutineDayStatus.findAll({
       where: { user_routine_id: userRoutine?.id || 0 },
@@ -448,7 +448,7 @@ export const importRoutineFromExcel = async (req, res) => {
         !row["Día Nombre"] ||
         !row["Ejercicio"]
       ) {
-
+        
         continue;
       }
 
@@ -540,13 +540,13 @@ export const importRoutineFromExcel = async (req, res) => {
         substitute_1_id: sub1Id,
         substitute_2_id: sub2Id,
         intensity: "", // puedes ajustar si lo agregás al excel
-        warm_up_sets: String(row["Series Calent"] || "").trim(),
-        working_sets: String(row["Series Efectivas"] || "").trim(),
-        reps: String(row["Reps"] || "").trim(),
-        rpe_early: String(row["RPE Inicial"] || "").trim(),
-        rpe_last: String(row["RPE Final"] || "").trim(),
-        rest: String(row["Descanso"] || "").trim(),
-        notes: String(row["Notas"] || "").trim(),
+        warm_up_sets: Number(row["Series Calent"]) || 0,
+        working_sets: Number(row["Series Efectivas"]) || 0,
+        reps: row["Reps"] || "",
+        rpe_early: row["RPE Inicial"] || "",
+        rpe_last: row["RPE Final"] || "",
+        rest: row["Descanso"] || "",
+        notes: row["Notas"] || "",
       });
       console.log("RPE Inicial:", row["RPE Inicial"], "->", String(row["RPE Inicial"]));
       // Relacioná la rutina con el usuario (si no existe ya)
