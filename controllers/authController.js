@@ -52,7 +52,11 @@ export const getUserFromToken = async (req, res) => {
 
 // logout user
 export const logoutUser = (req, res) => {
-  res.clearCookie("token").json({ message: "Sesión cerrada" });
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+  }).json({ message: "Sesión cerrada" });
 };
 
 // register user

@@ -18,3 +18,5 @@ Thumbs.db
 
 # Archivos específicos de tu proyecto
 sequelizeComandos.txt
+esquema.slq
+esquema.sql

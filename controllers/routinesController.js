@@ -146,13 +146,13 @@ export const getRoutineLoads = async (req, res) => {
         ],
       },
     });
-
+    // “🔧 Pendiente: separar presentación del backend y mover formato al frontend”.
     const result = days.map((day) => ({
       day: day.name,
       exercises: day.RoutineDayExercises.map((rde) => ({
         id: rde.exercise_id,
         name: rde.Exercise?.name || "Sin nombre",
-        sets: rde.ExerciseSets.map((set) => `${set.weight}x${set.reps}`),
+        sets: rde.ExerciseSets.map((set) => `${set.reps} x ${set.weight}kg`), //🔧🔧🔧
       })),
     }));
 
