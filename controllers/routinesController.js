@@ -28,7 +28,7 @@ export const getAllRoutines = async (req, res) => {
         }]
       },
     });
-    
+
     // El mapping final:
     const routines = userRoutines.map((ur) => ({
       id: ur.Routine.id,
@@ -76,7 +76,7 @@ export const getRoutineById = async (req, res) => {
 
     if (!routine) {
       return res.status(404).json({ error: "Rutina no encontrada" });
-    }    
+    }
 
     const dayStatuses = await UserRoutineDayStatus.findAll({
       where: { user_routine_id: userRoutine?.id || 0 },
@@ -399,7 +399,7 @@ export const importRoutineFromExcel = async (req, res) => {
       return res.status(401).json({ error: "No autenticado" });
     }
 
-    // 1. Leer el archivo excel recibido
+    // 2. Leer el archivo excel recibido
     const file = req.file;
     const workbook = XLSX.read(file.buffer, { type: "buffer" });
 
@@ -425,149 +425,146 @@ export const importRoutineFromExcel = async (req, res) => {
       }
     }
 
-    // Calcular semanas máximas por rutina:
+    // Calcular semanas máximas por rutina
     const rutinaSemanas = {};
     for (const row of rows) {
-      if (!row["Rutina"]) continue; // <-- Valida campo antes de trim()
+      if (!row["Rutina"]) continue;
       const rutina = row["Rutina"].trim();
       const semana = Number(row["Semana"]) || 1;
       rutinaSemanas[rutina] = Math.max(rutinaSemanas[rutina] || 1, semana);
     }
 
-    // Mapas para evitar duplicados y relacionar rápidamente
+    // Mapas para evitar duplicados
     const routineMap = new Map();
     const dayMap = new Map();
     const exerciseMap = new Map();
 
     for (const row of rows) {
-      // Validar campos obligatorios ANTES de cualquier uso:
-      if (
-        !row["Rutina"] ||
-        !row["Semana"] ||
-        !row["Día"] ||
-        !row["Día Nombre"] ||
-        !row["Ejercicio"]
-      ) {
-        
-        continue;
-      }
-
-      // --- Routine
-      const routineName = row["Rutina"].trim();
-      let routineId = routineMap.get(routineName);
-
-      if (!routineId) {
-        // Buscar o crear Routine
-        let routine = await Routine.findOne({ where: { name: routineName } });
-        if (!routine) {
-          routine = await Routine.create({
-            name: routineName,
-            weeks: rutinaSemanas[routineName],
-          });
+      try {
+        // Validar campos obligatorios
+        if (
+          !row["Rutina"] ||
+          !row["Semana"] ||
+          !row["Día"] ||
+          !row["Día Nombre"] ||
+          !row["Ejercicio"]
+        ) {
+          console.warn("⚠️ Fila incompleta omitida:", row);
+          continue;
         }
-        routineId = routine.id;
-        routineMap.set(routineName, routineId);
-      }
 
-      // --- RoutineDay
-      const dayKey = `${routineName}_${row["Semana"]}_${row["Día"]}_${row["Día Nombre"]}`;
-      let routineDayId = dayMap.get(dayKey);
-      if (!routineDayId) {
-        // Buscar o crear RoutineDay
-        let routineDay = await RoutineDay.findOne({
-          where: {
-            routine_id: routineId,
-            name: row["Día Nombre"],
-            week_number: Number(row["Semana"]),
-            day_order: Number(row["Día"]),
-          },
+        // --- Routine
+        const routineName = row["Rutina"].trim();
+        let routineId = routineMap.get(routineName);
+
+        if (!routineId) {
+          let routine = await Routine.findOne({ where: { name: routineName } });
+          if (!routine) {
+            routine = await Routine.create({
+              name: routineName,
+              weeks: rutinaSemanas[routineName],
+            });
+          }
+          routineId = routine.id;
+          routineMap.set(routineName, routineId);
+        }
+
+        // --- RoutineDay
+        const dayKey = `${routineName}_${row["Semana"]}_${row["Día"]}_${row["Día Nombre"]}`;
+        let routineDayId = dayMap.get(dayKey);
+        if (!routineDayId) {
+          let routineDay = await RoutineDay.findOne({
+            where: {
+              routine_id: routineId,
+              name: row["Día Nombre"],
+              week_number: Number(row["Semana"]),
+              day_order: Number(row["Día"]),
+            },
+          });
+          if (!routineDay) {
+            routineDay = await RoutineDay.create({
+              routine_id: routineId,
+              name: row["Día Nombre"],
+              week_number: Number(row["Semana"]),
+              day_order: Number(row["Día"]),
+            });
+          }
+          routineDayId = routineDay.id;
+          dayMap.set(dayKey, routineDayId);
+        }
+
+        // --- Ejercicios y sustitutos
+        const getOrCreateExercise = async (exName, videoLink) => {
+          if (!exName) return null;
+          const nameKey = exName.trim().toLowerCase();
+          if (exerciseMap.has(nameKey)) return exerciseMap.get(nameKey);
+
+          let exData = ejerciciosDisponibles[nameKey] || {};
+          let description = exData.description || "";
+          let ytlink = exData.ytlink || videoLink || "";
+
+          let exercise = await Exercise.findOne({ where: { name: exName } });
+          if (!exercise) {
+            exercise = await Exercise.create({
+              name: exName,
+              description,
+              ytlink,
+            });
+          }
+          exerciseMap.set(nameKey, exercise.id);
+          return exercise.id;
+        };
+
+        const exerciseId = await getOrCreateExercise(row["Ejercicio"], row["Video Link"]);
+        const sub1Id = await getOrCreateExercise(row["Sub 1"], row["Sub 1 Video"]);
+        const sub2Id = await getOrCreateExercise(row["Sub 2"], row["Sub 2 Video"]);
+
+        if (!exerciseId) {
+          console.warn("❌ No se pudo crear/buscar el ejercicio:", row["Ejercicio"]);
+          continue;
+        }
+
+        // --- RoutineDayExercise
+        await RoutineDayExercise.create({
+          routine_day_id: routineDayId,
+          exercise_id: exerciseId,
+          substitute_1_id: sub1Id,
+          substitute_2_id: sub2Id,
+          intensity: "",
+          warm_up_sets: String(row["Series Calent"] || "").trim(),
+          working_sets: String(row["Series Efectivas"] || "").trim(),
+          reps: String(row["Reps"] || "").trim(),
+          rpe_early: String(row["RPE Inicial"] || "").trim(),
+          rpe_last: String(row["RPE Final"] || "").trim(),
+          rest: String(row["Descanso"] || "").trim(),
+          notes: String(row["Notas"] || "").trim(),
         });
-        if (!routineDay) {
-          routineDay = await RoutineDay.create({
-            routine_id: routineId,
-            name: row["Día Nombre"],
-            week_number: Number(row["Semana"]),
-            day_order: Number(row["Día"]),
-          });
-        }
-        routineDayId = routineDay.id;
-        dayMap.set(dayKey, routineDayId);
-      }
 
-      // --- Exercise principal y sustitutos
-      const getOrCreateExercise = async (exName, videoLink) => {
-        if (!exName) return null;
-        const nameKey = exName.trim().toLowerCase();
-        if (exerciseMap.has(nameKey)) return exerciseMap.get(nameKey);
-
-        // Buscar en hoja ejercicios
-        let exData = ejerciciosDisponibles[nameKey] || {};
-        let description = exData.description || "";
-        let ytlink = exData.ytlink || videoLink || "";
-
-        // Buscar en DB
-        let exercise = await Exercise.findOne({ where: { name: exName } });
-        if (!exercise) {
-          exercise = await Exercise.create({
-            name: exName,
-            description,
-            ytlink,
-          });
-        }
-        exerciseMap.set(nameKey, exercise.id);
-        return exercise.id;
-      };
-
-      // Principal
-      const exerciseId = await getOrCreateExercise(
-        row["Ejercicio"],
-        row["Video Link"]
-      );
-      // Sub 1 y Sub 2
-      const sub1Id = await getOrCreateExercise(
-        row["Sub 1"],
-        row["Sub 1 Video"]
-      );
-      const sub2Id = await getOrCreateExercise(
-        row["Sub 2"],
-        row["Sub 2 Video"]
-      );
-
-      // --- RoutineDayExercise
-      await RoutineDayExercise.create({
-        routine_day_id: routineDayId,
-        exercise_id: exerciseId,
-        substitute_1_id: sub1Id,
-        substitute_2_id: sub2Id,
-        intensity: "", // puedes ajustar si lo agregás al excel
-        warm_up_sets: Number(row["Series Calent"]) || 0,
-        working_sets: Number(row["Series Efectivas"]) || 0,
-        reps: row["Reps"] || "",
-        rpe_early: row["RPE Inicial"] || "",
-        rpe_last: row["RPE Final"] || "",
-        rest: row["Descanso"] || "",
-        notes: row["Notas"] || "",
-      });
-      console.log("RPE Inicial:", row["RPE Inicial"], "->", String(row["RPE Inicial"]));
-      // Relacioná la rutina con el usuario (si no existe ya)
-      const exists = await UserRoutine.findOne({
-        where: { user_id: userId, routine_id: routineId },
-      });
-      if (!exists) {
-        await UserRoutine.create({
-          user_id: userId,
-          routine_id: routineId,
-          assignedAt: new Date(),
+        // --- Asignar rutina al usuario si no está
+        const exists = await UserRoutine.findOne({
+          where: { user_id: userId, routine_id: routineId },
         });
+        if (!exists) {
+          await UserRoutine.create({
+            user_id: userId,
+            routine_id: routineId,
+            assignedAt: new Date(),
+          });
+        }
+      } catch (err) {
+        console.error("❌ Error procesando fila:", row);
+        console.error("🔍 Detalle del error:", err);
       }
     }
 
+    console.log("✅ Rutina importada correctamente.");
     res.json({ message: "✅ Rutina importada correctamente." });
   } catch (err) {
-    console.error("❌ Error al importar rutina:", err);
+    console.error("❌ Error general en importación:", err);
     res.status(500).json({ error: "Error interno al importar rutina." });
   }
 };
+
 
 
 // Esta función actualiza el nombre de una rutina
